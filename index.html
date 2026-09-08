@@ -1,0 +1,279 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>C-Computer — C = m c / d</title>
+  <meta name="description" content="16-bit register machine. Only ALU is C = m*c/d. Reset is every 0 in binary." />
+  <style>
+    :root {
+      --bg: #07080c;
+      --panel: #10131a;
+      --ink: #e8edf5;
+      --dim: #8b96a8;
+      --line: #2a3140;
+      --accent: #6ee7c5;
+      --warn: #ffb86b;
+      --zero: #5b6b88;
+      --good: #7dffb3;
+    }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; background: var(--bg); color: var(--ink); font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+    body { min-height: 100dvh; }
+    header {
+      padding: 18px 16px 8px;
+      border-bottom: 1px solid var(--line);
+    }
+    header h1 { margin: 0; font-size: 18px; letter-spacing: 0.08em; }
+    header p { margin: 6px 0 0; color: var(--dim); font-size: 12px; }
+    .eq { color: var(--accent); }
+    main { padding: 16px; max-width: 920px; margin: 0 auto; }
+    .grid { display: grid; gap: 12px; grid-template-columns: 1fr; }
+    @media (min-width: 760px) { .grid { grid-template-columns: 1fr 1fr; } }
+    .card {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      padding: 14px;
+    }
+    label { display: block; font-size: 11px; color: var(--dim); margin-bottom: 4px; letter-spacing: 0.06em; }
+    input {
+      width: 100%;
+      background: #0b0d12;
+      border: 1px solid var(--line);
+      color: var(--ink);
+      padding: 10px;
+      border-radius: 6px;
+      font: inherit;
+      margin-bottom: 10px;
+    }
+    .row { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; }
+    .btns { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 4px; }
+    button {
+      background: #172018;
+      color: var(--accent);
+      border: 1px solid #2d4a3c;
+      padding: 10px 12px;
+      border-radius: 6px;
+      font: inherit;
+      cursor: pointer;
+    }
+    button.ghost { background: #141820; color: var(--ink); border-color: var(--line); }
+    button.danger { background: #1a1410; color: var(--warn); border-color: #4a3824; }
+    .bits {
+      font-size: 15px;
+      letter-spacing: 0.12em;
+      word-break: break-all;
+      color: var(--good);
+      background: #0b0d12;
+      padding: 12px;
+      border-radius: 6px;
+      border: 1px solid var(--line);
+    }
+    .bits.zero { color: var(--zero); }
+    .regs { font-size: 12px; color: var(--dim); margin-top: 8px; line-height: 1.6; }
+    #trace {
+      height: 280px;
+      overflow: auto;
+      background: #0b0d12;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      padding: 10px;
+      font-size: 11px;
+      white-space: pre;
+      color: #c9d4e4;
+    }
+    footer { padding: 20px 16px 40px; color: var(--dim); font-size: 11px; text-align: center; }
+    a { color: var(--accent); }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>C-COMPUTER</h1>
+    <p>16-bit register machine. Only legal arithmetic is <span class="eq">C = m · c / d</span>. Reset is every 0 in binary.</p>
+  </header>
+  <main>
+    <div class="grid">
+      <section class="card">
+        <label>CONTROL WORD C</label>
+        <div id="bits" class="bits zero">0000000000000000</div>
+        <div class="regs" id="regs">m=0  c=0  d=0  C=0  pc=0  hyp=1  halted=false</div>
+      </section>
+      <section class="card">
+        <div class="row">
+          <div>
+            <label>m</label>
+            <input id="m" type="number" step="any" value="2" />
+          </div>
+          <div>
+            <label>c</label>
+            <input id="c" type="number" step="any" value="3" />
+          </div>
+          <div>
+            <label>d (blank = hypothesis)</label>
+            <input id="d" type="number" step="any" value="1" placeholder="from hyp" />
+          </div>
+        </div>
+        <label>real echo (correct only)</label>
+        <input id="echo" type="number" step="any" value="1.2" />
+        <div class="btns">
+          <button onclick="stepOnce()">STEP</button>
+          <button class="ghost" onclick="demo()">DEMO</button>
+          <button class="ghost" onclick="pushHold()">PUSH</button>
+          <button class="danger" onclick="resetCpu()">RESET → 0b0…0</button>
+        </div>
+      </section>
+    </div>
+    <section class="card" style="margin-top:12px">
+      <label>TRACE  RESET → LOAD → COMPUTE → PUSH → CORRECT</label>
+      <div id="trace"></div>
+    </section>
+  </main>
+  <footer>
+    Cycle: predict d from hypothesis · compute C · push before the plant moves · correct hyp from real echo.<br />
+    d = 0 or NaN forces C to every 0 in binary. Source: <a href="c_computer.py">c_computer.py</a>
+  </footer>
+  <script>
+    const WORD = 16;
+    const ZERO = 0;
+
+    function toBits(n) {
+      const mask = (1 << WORD) - 1;
+      let v = n | 0;
+      v = v & mask;
+      return v.toString(2).padStart(WORD, "0");
+    }
+
+    function clampWord(x) {
+      if (!Number.isFinite(x)) return ZERO;
+      const v = Math.round(x);
+      const lo = -(1 << (WORD - 1));
+      const hi = (1 << (WORD - 1)) - 1;
+      return Math.max(lo, Math.min(hi, v));
+    }
+
+    const cpu = {
+      m: 0, c: 0, d: 0, C: 0, pc: 0,
+      halted: false,
+      hyp: 1,
+      pushed: [],
+      trace: []
+    };
+
+    function log(op, note) {
+      cpu.trace.push(
+        String(cpu.trace.length).padStart(3, "0") + " " +
+        op.padEnd(8) + " C=" + String(cpu.C).padStart(6) + " " +
+        toBits(cpu.C) + "  m=" + fmt(cpu.m) + " c=" + fmt(cpu.c) +
+        " d=" + fmt(cpu.d) + "  " + note
+      );
+    }
+
+    function fmt(x) {
+      if (!Number.isFinite(x)) return String(x);
+      return Number(x).toPrecision(4);
+    }
+
+    function render() {
+      const bits = toBits(cpu.C);
+      const el = document.getElementById("bits");
+      el.textContent = bits;
+      el.className = "bits" + (cpu.C === 0 ? " zero" : "");
+      document.getElementById("regs").textContent =
+        "m=" + cpu.m + "  c=" + cpu.c + "  d=" + cpu.d +
+        "  C=" + cpu.C + "  pc=" + cpu.pc +
+        "  hyp=" + cpu.hyp.toFixed(4) +
+        "  halted=" + cpu.halted;
+      document.getElementById("trace").textContent = cpu.trace.join("\n");
+      const t = document.getElementById("trace");
+      t.scrollTop = t.scrollHeight;
+    }
+
+    function resetCpu() {
+      cpu.m = 0; cpu.c = 0; cpu.d = 0; cpu.C = ZERO;
+      cpu.pc = 0; cpu.halted = false; cpu.hyp = 1;
+      cpu.pushed = []; cpu.trace = [];
+      log("RESET", "C forced to every 0 in binary");
+      render();
+    }
+
+    function load(m, c, d) {
+      cpu.m = Number(m);
+      cpu.c = Number(c);
+      if (d === "" || d === null || d === undefined || Number.isNaN(Number(d))) {
+        cpu.d = Math.max(1e-9, Math.abs(cpu.hyp));
+      } else {
+        cpu.d = Number(d);
+      }
+      log("LOAD", "m=" + cpu.m + " c=" + cpu.c + " d=" + cpu.d);
+    }
+
+    function compute() {
+      if (cpu.d === 0) {
+        cpu.C = ZERO;
+        log("SAFE", "d=0 → C = 0b0…0");
+        return cpu.C;
+      }
+      const raw = (cpu.m * cpu.c) / cpu.d;
+      cpu.C = clampWord(raw);
+      log("COMPUTE", "C = m*c/d = " + raw + " → word " + cpu.C);
+      return cpu.C;
+    }
+
+    function pushHold() {
+      cpu.pushed.push(cpu.C);
+      log("PUSH", "actuator ← " + toBits(cpu.C));
+      render();
+      return cpu.C;
+    }
+
+    function correct(realEcho) {
+      const echo = Number(realEcho);
+      const surprise = Math.abs(echo - cpu.hyp);
+      cpu.hyp = 0.7 * cpu.hyp + 0.3 * echo;
+      log("CORRECT", "echo=" + echo + " surprise=" + surprise.toFixed(4) + " hyp=" + cpu.hyp.toFixed(4));
+    }
+
+    function stepOnce() {
+      if (cpu.halted) return;
+      const m = document.getElementById("m").value;
+      const c = document.getElementById("c").value;
+      const dRaw = document.getElementById("d").value;
+      const echo = document.getElementById("echo").value;
+      load(m, c, dRaw === "" ? null : dRaw);
+      compute();
+      pushHold();
+      correct(echo);
+      cpu.pc += 1;
+      render();
+    }
+
+    function demo() {
+      resetCpu();
+      const program = [
+        { m: 2, c: 3, d: 1, echo: 1.2 },
+        { m: 4, c: 2, d: 2, echo: 0.8 },
+        { m: 10, c: 0.5, d: 0, echo: 1.0 },
+        { m: 8, c: 1.5, d: "", echo: 2.0 }
+      ];
+      program.forEach((inst) => {
+        document.getElementById("m").value = inst.m;
+        document.getElementById("c").value = inst.c;
+        document.getElementById("d").value = inst.d;
+        document.getElementById("echo").value = inst.echo;
+        load(inst.m, inst.c, inst.d === "" ? null : inst.d);
+        compute();
+        cpu.pushed.push(cpu.C);
+        log("PUSH", "actuator ← " + toBits(cpu.C));
+        correct(inst.echo);
+        cpu.pc += 1;
+      });
+      cpu.halted = true;
+      log("HALT", "loop idle, C held");
+      render();
+    }
+
+    resetCpu();
+  </script>
+</body>
+</html>
