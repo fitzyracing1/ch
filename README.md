@@ -47,3 +47,8 @@ Push the folder contents to `main` (or `docs/`) and enable GitHub Pages.
 ## License
 
 Use as you like. Control law stays `C = m c / d`.
+
+## Documentation
+
+- In-repo docs: [docs/](docs/index.md)
+- Wiki: [https://github.com/fitzyracing1/ch/wiki](https://github.com/fitzyracing1/ch/wiki)
